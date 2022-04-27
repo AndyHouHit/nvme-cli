@@ -704,7 +704,7 @@ static int query_cap_info(int argc, char **argv, struct command *cmd, struct plu
 	} else {
 	    if (nvme_query_cap(fd, 0xffffffff, sizeof(ctx), &ctx)) {
 		perror("sfx-query-cap");
-		return err;
+		return -1;
 	    }
 	}
 
