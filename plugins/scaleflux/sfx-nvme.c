@@ -29,6 +29,10 @@
 #define IDEMA_CAP(exp_GB)			(((__u64)exp_GB - 50ULL) * 1953504ULL + 97696368ULL)
 #define IDEMA_CAP2GB(exp_sector)		(((__u64)exp_sector - 97696368ULL) / 1953504ULL + 50ULL)
 
+#define SFX_NVME_DEV_C_VANDA	"sfxv"
+#define SFX_NVME_DEV_B_VANDA	"sfdv"
+#define SFX_NVME_DEV_LEN_VANDA	4
+
 enum {
 	SFX_LOG_LATENCY_READ_STATS	= 0xc1,
 	SFX_LOG_SMART			= 0xc2,
@@ -58,6 +62,7 @@ struct sfx_freespace_ctx
 	__u64 user_space;	/* user required space, in unit of sector*/
 	__u64 hw_used;		/* hw space used in 4K */
 	__u64 app_written;	/* app data written in 4K */
+	__u64 out_of_space;
 };
 
 struct nvme_capacity_info {
@@ -113,6 +118,27 @@ struct nvme_additional_smart_log {
 	struct nvme_additional_smart_log_item    grown_bb; //grown bad block
 };
 
+static int is_vanda_device(void)
+{
+	 if ((strncmp((char *)devicename, SFX_NVME_DEV_C_VANDA, SFX_NVME_DEV_LEN_VANDA) == 0) ||
+	     (strncmp((char *)devicename, SFX_NVME_DEV_B_VANDA, SFX_NVME_DEV_LEN_VANDA) == 0)) {
+		return 1;
+	 } else {
+		return 0;
+	 }
+}
+
+int nvme_query_cap(int fd, __u32 nsid, __u32 data_len, void *data)
+{
+        struct nvme_passthru_cmd cmd = {
+        .opcode          = nvme_admin_query_cap_info,
+        .nsid            = nsid,
+        .addr            = (__u64)(uintptr_t) data,
+        .data_len        = data_len,
+        };
+
+        return nvme_submit_admin_passthru(fd, &cmd, NULL);
+}
 int nvme_change_cap(int fd, __u32 nsid, __u64 capacity)
 {
 	struct nvme_passthru_cmd cmd = {
@@ -670,9 +696,16 @@ static int query_cap_info(int argc, char **argv, struct command *cmd, struct plu
 		return fd;
 	}
 
-	if (ioctl(fd, SFX_GET_FREESPACE, &ctx)) {
+	if (is_vanda_device()) {
+	    if (ioctl(fd, SFX_GET_FREESPACE, &ctx)) {
 		fprintf(stderr, "vu ioctl fail, errno %d\r\n", errno);
 		return -1;
+	    }
+	} else {
+	    if (nvme_query_cap(fd, 0xffffffff, sizeof(ctx), &ctx)) {
+		perror("sfx-query-cap");
+		return err;
+	    }
 	}
 
 	show_cap_info(&ctx);
@@ -689,11 +722,20 @@ static int change_sanity_check(int fd, __u64 trg_in_4k, int *shrink)
 	__u32 cnt_ms = 0;
 	int extend = 0;
 
-	while (ioctl(fd, SFX_GET_FREESPACE, &freespace_ctx)) {
-		if (cnt_ms++ > 600) {//1min
-			return -1;
+	if (is_vanda_device()) {
+	    while (ioctl(fd, SFX_GET_FREESPACE, &freespace_ctx)) {
+	        if (cnt_ms++ > 600) {//1min
+		    return -1;
 		}
 		usleep(100000);
+	    }
+	} else {
+	    while (nvme_query_cap(fd, 0xffffffff, sizeof(freespace_ctx), &freespace_ctx)) {
+		if (cnt_ms++ > 600) {//1min
+		    return -1;
+		}
+		usleep(100000);
+	    }
 	}
 
 	/*
