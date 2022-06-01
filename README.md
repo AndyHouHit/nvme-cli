@@ -1,4 +1,8 @@
 # nvme-cli
+![Coverity Scan Build Status](https://scan.coverity.com/projects/24883/badge.svg)
+![MesonBuild](https://github.com/linux-nvme/nvme-cli/actions/workflows/meson.yml/badge.svg)
+![GitHub](https://img.shields.io/github/license/linux-nvme/nvme-cli)
+
 NVM-Express user space tooling for Linux.
 
 nvme-cli uses meson as build system. In order to build nvme-cli

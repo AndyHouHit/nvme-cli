@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
 # bash tab completion for the nvme command line utility
 # (unfortunately, bash won't let me add descriptions to cmds)
 # Kelly Kaoudis kelly.n.kaoudis at intel.com, Aug. 2015
@@ -7,8 +9,7 @@ readonly NO_OPTS=""
 
 # Associative array of plugins and associated subcommands
 # Order here is same as PLUGIN_OBJS in Makefile
-typeset -A _plugin_subcmds
-readonly _plugin_subcmds=(
+typeset -Ar _plugin_subcmds=(
 	[intel]="id-ctrl internal-log lat-stats \
 		set-bucket-thresholds lat-stats-tracking \
 		market-name smart-log-add temp-stats"
@@ -55,8 +56,7 @@ readonly _plugin_subcmds=(
 )
 
 # Associative array mapping plugins to coresponding option completions
-typeset -A _plugin_funcs
-readonly _plugin_funcs=(
+typeset -Ar _plugin_funcs=(
 	[intel]="plugin_intel_opts"
 	[amzn]="plugin_amzn_opts"
 	[memblaze]="plugin_memblaze_opts"

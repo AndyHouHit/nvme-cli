@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
@@ -102,12 +103,11 @@ static int list(int argc, char **argv, struct command *cmd,
 	nvme_root = nvme_scan(NULL);
 	if (nvme_root) {
 		err = print_zns_list(nvme_root);
+		nvme_free_tree(nvme_root);
 	} else {
 		fprintf(stderr, "Failed to scan nvme subsystems\n");
 		err = -errno;
 	}
-
-	nvme_free_tree(nvme_root);
 
 	return err;
 }

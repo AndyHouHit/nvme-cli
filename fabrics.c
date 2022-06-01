@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2016 Intel Corporation. All rights reserved.
  * Copyright (c) 2016 HGST, a Western Digital Company.
@@ -221,7 +222,7 @@ static void print_discovery_log(struct nvmf_discovery_log *log, int numrec)
 		printf("=====Discovery Log Entry %d======\n", i);
 		printf("trtype:  %s\n", nvmf_trtype_str(e->trtype));
 		printf("adrfam:  %s\n",
-			e->traddr && strlen(e->traddr) ?
+			strlen(e->traddr) ?
 			nvmf_adrfam_str(e->adrfam): "");
 		printf("subtype: %s\n", nvmf_subtype_str(e->subtype));
 		printf("treq:    %s\n", nvmf_treq_str(e->treq));
@@ -386,6 +387,10 @@ static int __discover(nvme_ctrl_t c, struct nvme_fabrics_config *defcfg,
 			nvme_ctrl_t child;
 			int tmo = defcfg->keep_alive_tmo;
 
+			/* Skip connect if the transport types don't match */
+			if (strcmp(nvme_ctrl_get_transport(c), nvmf_trtype_str(e->trtype)))
+				continue;
+
 			if (e->subtype == NVME_NQN_DISC)
 				set_discovery_kato(defcfg);
 
@@ -478,6 +483,8 @@ static nvme_ctrl_t lookup_discover_ctrl(nvme_root_t r, struct tr_config *trcfg)
 static char *get_default_trsvcid(const char *transport,
 			         bool discovery_ctrl)
 {
+	if (!transport)
+		return NULL;
 	if (!strcmp(transport, "tcp")) {
 		if (discovery_ctrl) {
 			/* Default port for NVMe/TCP discovery controllers */
@@ -659,6 +666,7 @@ int nvmf_discover(const char *desc, int argc, char **argv, bool connect)
 		nvme_free_tree(r);
 		return ret;
 	}
+	nvme_read_config(r, config_file);
 
 	if (!hostnqn)
 		hostnqn = hnqn = nvmf_hostnqn_from_file();
@@ -825,7 +833,7 @@ int nvmf_connect(const char *desc, int argc, char **argv)
 	if (strcmp(transport, "loop")) {
 		if (!traddr) {
 			fprintf(stderr,
-				"required argument [--address | -a] not specified for transport %s\n",
+				"required argument [--traddr | -a] not specified for transport %s\n",
 				transport);
 			return EINVAL;
 		}

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -1477,7 +1478,7 @@ static void nvme_show_persistent_event_log_rci(__le32 pel_header_rci)
 	printf("\tReporting Context Port Identifier Type (RCPIT): %u(%s)\n", rcpit,
 		(rcpit == 0x00) ? "Does not already exist" :
 		(rcpit == 0x01) ? "NVM subsystem port" :
-		(rcpit == 0x10) ? "NVMe-MI port" : "Reserved");
+		(rcpit == 0x02) ? "NVMe-MI port" : "Reserved");
 	printf("\tReporting Context Port Identifier (RCPID): %#x\n\n", rcpid);
 }
 
@@ -1490,8 +1491,8 @@ static void nvme_show_persistent_event_entry_ehai(__u8 ehai)
 	printf("\tPort Identifier Type (PIT): %u(%s)\n", pit,
 		(pit == 0x00) ? "PIT not reported and PELPID does not apply" :
 		(pit == 0x01) ? "NVM subsystem port" :
-		(pit == 0x10) ? "NVMe-MI port" :
-		(pit == 0x11) ? "Event not associated with any port and PELPID does not apply" : "Reserved");
+		(pit == 0x02) ? "NVMe-MI port" :
+		"Event not associated with any port and PELPID does not apply");
 }
 
 void nvme_show_persistent_event_log(void *pevent_log_info,
@@ -1737,13 +1738,12 @@ void nvme_show_persistent_event_log(void *pevent_log_info,
 			fid = le32_to_cpu(set_feat_event->cdw_mem[0]) & 0x000f;
 			cdw11 = le32_to_cpu(set_feat_event->cdw_mem[1]);
 
-			if (((set_feat_event->layout & 0xff) >> 2) != 0)
-				mem_buf = (unsigned char *)(set_feat_event + 4 + dword_cnt * 4);
-
 			printf("Set Feature ID  :%#02x (%s),  value:%#08x\n", fid,
 				nvme_feature_to_string(fid), cdw11);
-
-			nvme_feature_show_fields(fid, cdw11, mem_buf);
+			if (((set_feat_event->layout & 0xff) >> 2) != 0) {
+				mem_buf = (unsigned char *)(set_feat_event + 4 + dword_cnt * 4);
+				nvme_feature_show_fields(fid, cdw11, mem_buf);
+			}
 			break;
 		case NVME_PEL_TELEMETRY_CRT:
 			d(pevent_log_info + offset, 512, 16, 1);
@@ -2376,22 +2376,23 @@ void nvme_show_supported_cap_config_log(
 static unsigned int nvme_show_subsystem_multipath(nvme_subsystem_t s)
 {
 	nvme_ns_t n;
+	nvme_path_t p;
 	unsigned int i = 0;
 
-	nvme_subsystem_for_each_ns(s, n) {
-		nvme_path_t p;
+	n = nvme_subsystem_first_ns(s);
+	if (!n)
+		return 0;
 
-		nvme_namespace_for_each_path(n, p) {
-			nvme_ctrl_t c = nvme_path_get_ctrl(p);
+	nvme_namespace_for_each_path(n, p) {
+		nvme_ctrl_t c = nvme_path_get_ctrl(p);
 
-			printf(" +- %s %s %s %s %s\n",
-			       nvme_ctrl_get_name(c),
-			       nvme_ctrl_get_transport(c),
-			       nvme_ctrl_get_address(c),
-			       nvme_ctrl_get_state(c),
-			       nvme_path_get_ana_state(p));
-			i++;
-		}
+		printf(" +- %s %s %s %s %s\n",
+		       nvme_ctrl_get_name(c),
+		       nvme_ctrl_get_transport(c),
+		       nvme_ctrl_get_address(c),
+		       nvme_ctrl_get_state(c),
+		       nvme_path_get_ana_state(p));
+		i++;
 	}
 
 	return i;
@@ -4362,7 +4363,7 @@ static void json_nvme_id_ns_descs(void *data)
 
 		case NVME_NIDT_CSI:
 			memcpy(&desc.csi, data + off, sizeof(desc.csi));
-			json_str_p += sprintf(json_str_p, "%#x", desc.csi);
+			sprintf(json_str_p, "%#x", desc.csi);
 			len += sizeof(desc.csi);
 			nidt_name = "csi";
 			break;
@@ -4568,7 +4569,7 @@ void nvme_show_id_ctrl(struct nvme_id_ctrl *ctrl, enum nvme_print_flags flags,
 		nvme_show_id_ctrl_vwci(ctrl->vwci);
 	printf("mec       : %u\n", ctrl->mec);
 	if (human)
-		nvme_show_id_ctrl_mec(ctrl->vwci);
+		nvme_show_id_ctrl_mec(ctrl->mec);
 
 	printf("oacs      : %#x\n", le16_to_cpu(ctrl->oacs));
 	if (human)

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
@@ -377,6 +378,7 @@ static int get_additional_smart_log(int argc, char **argv, struct command *cmd, 
 	}
 	else if (err > 0)
 		nvme_show_status(err);
+	close(fd);
 	return err;
 }
 
@@ -412,6 +414,7 @@ static int get_market_log(int argc, char **argv, struct command *cmd, struct plu
 			d_raw((unsigned char *)&log, sizeof(log));
 	} else if (err > 0)
 		nvme_show_status(err);
+	close(fd);
 	return err;
 }
 
@@ -472,6 +475,7 @@ static int get_temp_stats_log(int argc, char **argv, struct command *cmd, struct
 			d_raw((unsigned char *)&stats, sizeof(stats));
 	} else if (err > 0)
 		nvme_show_status(err);
+	close(fd);
 	return err;
 }
 
@@ -1105,21 +1109,19 @@ static int get_lat_stats_log(int argc, char **argv, struct command *cmd, struct 
 		       sizeof(struct intel_lat_stats));
 	}
 
-	if (!err) {
-		if (cfg.json)
-			json_lat_stats(cfg.write);
-		else if (!cfg.raw_binary)
-			show_lat_stats(cfg.write);
-		else {
-			if (media_version[0] == 1000)
-				d_raw((unsigned char *)&v1000_stats,
-				      sizeof(v1000_stats));
-			else
-				d_raw((unsigned char *)&stats,
-				      sizeof(stats));
-		}
-	} else if (err > 0)
-		nvme_show_status(err);
+	if (cfg.json)
+		json_lat_stats(cfg.write);
+	else if (!cfg.raw_binary)
+		show_lat_stats(cfg.write);
+	else {
+		if (media_version[0] == 1000)
+			d_raw((unsigned char *)&v1000_stats,
+			      sizeof(v1000_stats));
+		else
+			d_raw((unsigned char *)&stats,
+			      sizeof(stats));
+	}
+
 close_fd:
 	close(fd);
 	return err;
@@ -1385,14 +1387,14 @@ static int get_internal_log(int argc, char **argv, struct command *command,
 	}
 
 	if (cfg.log > 2 || cfg.core > 4 || cfg.lnum > 255) {
-		free(intel);
-		return EINVAL;
+		err = -EINVAL;
+		goto out_free;
 	}
 
 	if (!cfg.file) {
 		err = setup_file(f, cfg.file, fd, cfg.log);
 		if (err)
-			goto out;
+			goto out_free;
 		cfg.file = f;
 	}
 
@@ -1403,6 +1405,10 @@ static int get_internal_log(int argc, char **argv, struct command *command,
 	cdlog.u.fields.selectNlog = cfg.lnum < 0 ? 0 : cfg.lnum;
 
 	output = open(cfg.file, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+	if (output < 0) {
+		err = output;
+		goto out_free;
+	}
 
 	err = read_header(&cmd, buf, fd, cdlog.u.entireDword, cfg.namespace_id);
 	if (err)
@@ -1494,7 +1500,7 @@ static int get_internal_log(int argc, char **argv, struct command *command,
 		}
 	}
 	err = 0;
- out:
+out:
 	if (err > 0) {
 		nvme_show_status(err);
 	} else if (err < 0) {
@@ -1502,7 +1508,10 @@ static int get_internal_log(int argc, char **argv, struct command *command,
 		err = EIO;
 	} else
 		printf("Successfully wrote log to %s\n", cfg.file);
+	close(output);
+out_free:
 	free(intel);
+	close(fd);
 	return err;
 }
 
@@ -1597,6 +1606,7 @@ static int enable_lat_stats_tracking(int argc, char **argv,
 				fid, result);
 		} else {
 			printf("Could not read feature id 0xE2.\n");
+			close(fd);
 			return err;
 		}
 		break;
@@ -1617,6 +1627,7 @@ static int enable_lat_stats_tracking(int argc, char **argv,
 		printf("%d not supported.\n", option);
 		return EINVAL;
 	}
+	close(fd);
 	return fd;
 }
 

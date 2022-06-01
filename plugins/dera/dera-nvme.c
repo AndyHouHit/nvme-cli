@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
@@ -186,7 +187,7 @@ static int get_status(int argc, char **argv, struct command *cmd, struct plugin 
 	printf("fw_loader_version                   : %.*s\n", 8, log.fw_loader_version);
 	printf("uefi_driver_version                 : %.*s\n", 8, log.uefi_driver_version);
 
-	if (log.pcie_volt_status <= sizeof(volt_status) / sizeof(const char *)){
+	if (log.pcie_volt_status < sizeof(volt_status) / sizeof(const char *)){
 		printf("pcie_volt_status                    : %s\n", volt_status[log.pcie_volt_status]);
 	}
 	else{
@@ -204,6 +205,7 @@ exit:
 	if (err > 0)
 		nvme_show_status(err);
 
+	close(fd);
 	return err;
 }
 
