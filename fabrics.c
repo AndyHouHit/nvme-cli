@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2016 Intel Corporation. All rights reserved.
  * Copyright (c) 2016 HGST, a Western Digital Company.
@@ -665,6 +666,7 @@ int nvmf_discover(const char *desc, int argc, char **argv, bool connect)
 		nvme_free_tree(r);
 		return ret;
 	}
+	nvme_read_config(r, config_file);
 
 	if (!hostnqn)
 		hostnqn = hnqn = nvmf_hostnqn_from_file();
