@@ -30,6 +30,12 @@
 #define IDEMA_CAP(exp_GB)			(((__u64)exp_GB - 50ULL) * 1953504ULL + 97696368ULL)
 #define IDEMA_CAP2GB(exp_sector)		(((__u64)exp_sector - 97696368ULL) / 1953504ULL + 50ULL)
 
+#define VANDA_MAJOR_IDX			0
+#define VANDA_MINOR_IDX			0
+
+#define MYRTLE_MAJOR_IDX        4
+#define MYRTLE_MINOR_IDX        1
+
 enum {
 	SFX_LOG_LATENCY_READ_STATS	= 0xc1,
 	SFX_LOG_SMART			= 0xc2,
@@ -437,7 +443,7 @@ static int get_additional_smart_log(int argc, char **argv, struct command *cmd, 
 	return err;
 }
 
-struct __attribute__((__packed__)) sfx_lat_stats_v1 {
+struct __attribute__((__packed__)) sfx_lat_stats_vanda {
 	__u16    maj;
 	__u16    min;
 	__u32	 bucket_1[32];	/* 0~1ms, step 32us */
@@ -448,7 +454,7 @@ struct __attribute__((__packed__)) sfx_lat_stats_v1 {
 	__u32	 bucket_6[1];	/* 4s+, specifically 4096ms+ */
 };
 
-struct __attribute__((__packed__)) sfx_lat_stats_v2 {
+struct __attribute__((__packed__)) sfx_lat_stats_myrtle {
 	__u16    maj;
 	__u16    min;
 	__u32	 bucket_1[64];	/* 0us~63us, step 1us */
@@ -473,14 +479,21 @@ struct __attribute__((__packed__)) sfx_lat_stats_v2 {
 	__u64    average; /* average latency statistics */
 };
 
+
+struct __attribute__((__packed__)) sfx_lat_status_ver {
+	__u16 maj;
+	__u16 min;
+};
+
 struct sfx_lat_stats {
 	union {
-		struct sfx_lat_stats_v1 v1;
-		struct sfx_lat_stats_v2 v2;
+		struct sfx_lat_status_ver   ver;
+		struct sfx_lat_stats_vanda  vanda;
+		struct sfx_lat_stats_myrtle myrtle;
 	};
 };
 
-static void show_lat_stats_v1(struct sfx_lat_stats_v1 *stats, int write)
+static void show_lat_stats_vanda(struct sfx_lat_stats_vanda *stats, int write)
 {
 	int i;
 
@@ -511,7 +524,7 @@ static void show_lat_stats_v1(struct sfx_lat_stats_v1 *stats, int write)
 	printf("Bucket %2d: %u\n", 0, stats->bucket_6[0]);
 }
 
-static void show_lat_stats_v2(struct sfx_lat_stats_v2 *stats, int write)
+static void show_lat_stats_myrtle(struct sfx_lat_stats_myrtle *stats, int write)
 {
 	int i;
 
@@ -599,6 +612,7 @@ static void show_lat_stats_v2(struct sfx_lat_stats_v2 *stats, int write)
 	printf("\nAverage latency statistics %lld\n", stats->average);
 }
 
+
 static int get_lat_stats_log(int argc, char **argv, struct command *cmd, struct plugin *plugin)
 {
 	struct sfx_lat_stats stats;
@@ -628,21 +642,21 @@ static int get_lat_stats_log(int argc, char **argv, struct command *cmd, struct 
 
 	err = nvme_get_log_simple(fd, cfg.write ? 0xc3 : 0xc1, sizeof(stats), (void *)&stats);
 	if (!err) {
-		if ((stats.v1.maj == 0) && (stats.v1.min == 0)) {
+		if ((stats.ver.maj == VANDA_MAJOR_IDX) && (stats.ver.min == VANDA_MINOR_IDX)) {
 			if (!cfg.raw_binary) {
-				show_lat_stats_v1(&stats.v1, cfg.write);
+				show_lat_stats_vanda(&stats.vanda, cfg.write);
 			} else {
-				d_raw((unsigned char *)&stats.v1, sizeof(struct sfx_lat_stats_v1));
+				d_raw((unsigned char *)&stats.vanda, sizeof(struct sfx_lat_stats_vanda));
 			}
-		} else if ((stats.v2.maj == 4) && (stats.v2.min == 1)) {
+		} else if ((stats.ver.maj == MYRTLE_MAJOR_IDX) && (stats.ver.min == MYRTLE_MINOR_IDX)) {
 			if (!cfg.raw_binary) {
-				show_lat_stats_v2(&stats.v2, cfg.write);
+				show_lat_stats_myrtle(&stats.myrtle, cfg.write);
 			} else {
-				d_raw((unsigned char *)&stats.v2, sizeof(struct sfx_lat_stats_v2));
+				d_raw((unsigned char *)&stats.myrtle, sizeof(struct sfx_lat_stats_myrtle));
 			}
 		} else {
 			printf("ScaleFlux IO %s Command Latency Statistics Invalid Version Maj %d Min %d\n",
-				    write ? "Write" : "Read", stats.v1.maj, stats.v1.min);
+				    write ? "Write" : "Read", stats.ver.maj, stats.ver.min);
 		}
 	} else if (err > 0)
 		nvme_show_status(err);
@@ -808,16 +822,13 @@ static int query_cap_info(int argc, char **argv, struct command *cmd, struct plu
 	int err = 0, fd;
 	char *desc = "query current capacity info";
 	const char *raw = "dump output in binary format";
-	const char *json= "Dump output in json format";
 	struct config {
 		bool  raw_binary;
-		bool  json;
 	};
 	struct config cfg;
 
 	OPT_ARGS(opts) = {
 		OPT_FLAG("raw-binary", 'b', &cfg.raw_binary, raw),
-		OPT_FLAG("json",	   'j', &cfg.json,		 json),
 		OPT_END()
 	};
 
@@ -828,10 +839,17 @@ static int query_cap_info(int argc, char **argv, struct command *cmd, struct plu
 
 	if (nvme_query_cap(fd, 0xffffffff, sizeof(ctx), &ctx)) {
 	    perror("sfx-query-cap");
+		close(fd);
 	    return -1;
 	}
 
-	show_cap_info(&ctx);
+	if (!err) {
+		if (!cfg.raw_binary)
+			show_cap_info(&ctx);
+		else
+			d_raw((unsigned char *)&ctx, sizeof(ctx));
+	}
+
 	close(fd);
 	return err;
 }
@@ -924,8 +942,6 @@ static int change_cap(int argc, char **argv, struct command *cmd, struct plugin 
 {
 	int err = -1, fd;
 	char *desc = "dynamic change capacity";
-	const char *raw = "dump output in binary format";
-	const char *json= "Dump output in json format";
 	const char *cap_gb = "cap size in GB";
 	const char *cap_byte = "cap size in byte";
 	const char *force = "The \"I know what I'm doing\" flag, skip confirmation before sending command";
@@ -936,8 +952,6 @@ static int change_cap(int argc, char **argv, struct command *cmd, struct plugin 
 	struct config {
 		__u64 cap_in_byte;
 		__u32 capacity_in_gb;
-		bool  raw_binary;
-		bool  json;
 		bool  force;
 	};
 
@@ -951,8 +965,6 @@ static int change_cap(int argc, char **argv, struct command *cmd, struct plugin 
 		OPT_UINT("cap",			'c',	&cfg.capacity_in_gb,	cap_gb),
 		OPT_SUFFIX("cap-byte",	'z',	&cfg.cap_in_byte,		cap_byte),
 		OPT_FLAG("force",		'f',	&cfg.force,				force),
-		OPT_FLAG("raw-binary",	'b',	&cfg.raw_binary,		raw),
-		OPT_FLAG("json",		'j',	&cfg.json,				json),
 		OPT_END()
 	};
 
