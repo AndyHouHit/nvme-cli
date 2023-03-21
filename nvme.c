@@ -81,6 +81,19 @@ static struct program nvme = {
 	.extensions = &builtin,
 };
 
+static __u16 nvme_feat_buf_len[0x100] = {
+	[NVME_FEAT_LBA_RANGE]		= 4096,
+	[NVME_FEAT_AUTO_PST]		= 256,
+	[NVME_FEAT_HOST_MEM_BUF]	= 4096,
+	[NVME_FEAT_HOST_ID]		= 8,
+	[NVME_FEAT_PLM_CONFIG]		= 512,
+	[NVME_FEAT_TIMESTAMP]		= 8,
+};
+
+#define STRTOUL_AUTO_BASE              (0)
+#define NVME_FEAT_TIMESTAMP_DATA_SIZE  (6)
+
+
 static unsigned long long elapsed_utime(struct timeval start_time,
 					struct timeval end_time)
 {
@@ -3234,12 +3247,14 @@ static int set_feature(int argc, char **argv, struct command *cmd, struct plugin
 	__u32 result;
 	void *buf = NULL;
 	int fd, ffd = STDIN_FILENO;
+    char *endptr = NULL;
+    uint64_t number = 0;
 
 	struct config {
 		char *file;
 		__u32 namespace_id;
-		__u32 feature_id;
-		__u32 value;
+		__u8  feature_id;
+		__u64 value;
 		__u32 cdw12;
 		__u32 data_len;
 		int   save;
@@ -3256,8 +3271,8 @@ static int set_feature(int argc, char **argv, struct command *cmd, struct plugin
 
 	const struct argconfig_commandline_options command_line_options[] = {
 		{"namespace-id", 'n', "NUM",  CFG_POSITIVE, &cfg.namespace_id, required_argument, namespace_id},
-		{"feature-id",   'f', "NUM",  CFG_POSITIVE, &cfg.feature_id,   required_argument, feature_id},
-		{"value",        'v', "NUM",  CFG_POSITIVE, &cfg.value,        required_argument, value},
+		{"feature-id",   'f', "NUM",  CFG_BYTE, &cfg.feature_id,   required_argument, feature_id},
+		{"value",        'v', "NUM",  CFG_LONG,     &cfg.value,        required_argument, value},
 		{"cdw12",        'c', "NUM",  CFG_POSITIVE, &cfg.cdw12,        required_argument, cdw12},
 		{"data-len",     'l', "NUM",  CFG_POSITIVE, &cfg.data_len,     required_argument, data_len},
 		{"data",         'd', "FILE", CFG_STRING,   &cfg.file,         required_argument, data},
@@ -3274,8 +3289,9 @@ static int set_feature(int argc, char **argv, struct command *cmd, struct plugin
 		err = EINVAL;
 		goto close_fd;
 	}
-	if (cfg.feature_id == NVME_FEAT_LBA_RANGE)
-		cfg.data_len = 4096;
+
+	cfg.data_len = nvme_feat_buf_len[cfg.feature_id];
+
 	if (cfg.data_len) {
 		if (posix_memalign(&buf, getpagesize(), cfg.data_len)) {
 			fprintf(stderr, "can not allocate feature payload\n");
@@ -3286,6 +3302,10 @@ static int set_feature(int argc, char **argv, struct command *cmd, struct plugin
 	}
 
 	if (buf) {
+	  /* if feature ID is 0x0E, get timestamp value by -v option */
+        if (NVME_FEAT_TIMESTAMP == cfg.feature_id && cfg.value) {
+            memcpy(buf, &cfg.value, NVME_FEAT_TIMESTAMP_DATA_SIZE);
+        } else {
 		if (strlen(cfg.file)) {
 			ffd = open(cfg.file, O_RDONLY);
 			if (ffd <= 0) {
@@ -3302,6 +3322,13 @@ static int set_feature(int argc, char **argv, struct command *cmd, struct plugin
 					" file: %s\n", strerror(errno));
 			goto close_ffd;
 		}
+	      /* if feature ID is 0x0E, then change string from file to integer */
+            if (NVME_FEAT_TIMESTAMP == cfg.feature_id) {
+                number = strtoul(buf, &endptr, STRTOUL_AUTO_BASE);
+                memset(buf, 0, cfg.data_len);
+                memcpy(buf, &number, NVME_FEAT_TIMESTAMP_DATA_SIZE);
+            }
+        }
 	}
 
 	err = nvme_set_feature(fd, cfg.namespace_id, cfg.feature_id, cfg.value,
@@ -3309,7 +3336,7 @@ static int set_feature(int argc, char **argv, struct command *cmd, struct plugin
 	if (err < 0) {
 		perror("set-feature");
 	} else if (!err) {
-		printf("set-feature:%02x (%s), value:%#08x\n", cfg.feature_id,
+		printf("set-feature:%02x (%s), value:%#08llx\n", cfg.feature_id,
 			nvme_feature_to_string(cfg.feature_id), cfg.value);
 		if (buf) {
 			if (cfg.feature_id == NVME_FEAT_LBA_RANGE)
